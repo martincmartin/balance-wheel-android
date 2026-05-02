@@ -72,6 +72,7 @@ class LineState {
 
   double get span => _span;
   int get angleDeg => _span.abs().round();
+  int get amplitude => (_span.abs() / 2).round();
 }
 
 // ── Overlay painter ───────────────────────────────────────────────────────────
@@ -274,7 +275,7 @@ class _HomePageState extends State<HomePage> {
         children: [
           Text('Frame: $_frameIndex', style: const TextStyle(fontSize: 16)),
           const SizedBox(width: 24),
-          Text('Angle: ${_line?.angleDeg ?? 0}°',
+          Text('Amplitude: ${_line?.amplitude ?? 0}° (${_line?.angleDeg ?? 0}°)',
               style: const TextStyle(fontSize: 16)),
         ],
       ),
