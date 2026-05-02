@@ -84,13 +84,13 @@ class OverlayPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final segPaint = Paint()
       ..color = Colors.white
-      ..strokeWidth = 10
+      ..strokeWidth = 3
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
     final arcPaint = Paint()
       ..color = Colors.white
-      ..strokeWidth = 5
+      ..strokeWidth = 2
       ..style = PaintingStyle.stroke;
 
     canvas.drawLine(line.p1, line.p2, segPaint);
@@ -100,16 +100,16 @@ class OverlayPainter extends CustomPainter {
     // Our angles are CCW-positive; Flutter canvas uses CW-positive, so negate.
     final a1Rad = atan2(-(line.p1.dy - line.p2.dy), line.p1.dx - line.p2.dx);
     canvas.drawArc(
-      Rect.fromCircle(center: line.p2, radius: 80),
+      Rect.fromCircle(center: line.p2, radius: 27),
       -a1Rad,
       -line.span * pi / 180,
       false,
       arcPaint,
     );
 
-    canvas.drawCircle(line.p1, 30, Paint()..color = Colors.white);
-    canvas.drawCircle(line.p2, 30, Paint()..color = const Color(0xFFA0141E));
-    canvas.drawCircle(line.p3, 30, Paint()..color = Colors.white);
+    canvas.drawCircle(line.p1, 10, Paint()..color = Colors.white);
+    canvas.drawCircle(line.p2, 10, Paint()..color = const Color(0xFFA0141E));
+    canvas.drawCircle(line.p3, 10, Paint()..color = Colors.white);
   }
 
   @override
@@ -147,9 +147,13 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openVideo(String path) async {
     final ctrl = VideoPlayerController.file(File(path));
-    await ctrl.initialize();
-    final duration = ctrl.value.duration;
-    await ctrl.dispose();
+    late final Duration duration;
+    try {
+      await ctrl.initialize();
+      duration = ctrl.value.duration;
+    } finally {
+      await ctrl.dispose();
+    }
 
     setState(() {
       _videoPath = path;
@@ -209,7 +213,7 @@ class _HomePageState extends State<HomePage> {
         nearest = i;
       }
     }
-    if (minDist < 80) _draggingHandle = nearest;
+    if (minDist < 27) _draggingHandle = nearest;
   }
 
   void _onPanUpdate(DragUpdateDetails d) {
