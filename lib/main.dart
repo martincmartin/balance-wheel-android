@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -22,6 +23,8 @@ class BalanceWheelApp extends StatelessWidget {
     );
   }
 }
+
+const _kCacheRadius = 40; // frames to cache on each side of the current frame
 
 // ── Line / angle state ────────────────────────────────────────────────────────
 
@@ -135,7 +138,14 @@ class _HomePageState extends State<HomePage> {
   int _frameIndex = 0;
   Uint8List? _frameData;
   bool _loadingFrame = false;
-  int? _pendingFrameIndex;
+
+  // Frame cache: maps frame index → JPEG bytes.
+  final Map<int, Uint8List> _cache = {};
+  // Incremented on every _navigateTo; stale fills/fetches check this to abort.
+  int _generation = 0;
+  bool _fetchingCurrent = false;
+  int? _pendingNavigate;
+
   LineState? _line;
 
   // Zoom / pan transform: screen = content * _scale + _offset
@@ -173,23 +183,17 @@ class _HomePageState extends State<HomePage> {
       _frameData = null;
       _scale = 1.0;
       _offset = Offset.zero;
+      _cache.clear();
+      _fetchingCurrent = false;
+      _pendingNavigate = null;
     });
-    await _loadFrame(0);
+    _navigateTo(0);
   }
 
-  Future<void> _loadFrame(int index) async {
-    if (_videoPath == null) return;
-    if (_loadingFrame) {
-      setState(() => _pendingFrameIndex = index);
-      return;
-    }
-    setState(() {
-      _loadingFrame = true;
-      _pendingFrameIndex = null;
-    });
-
+  // Fetch a single frame's JPEG bytes from the video.
+  Future<Uint8List?> _doFetch(int index) {
     final ms = (index * 1000.0 / _fps).round();
-    final data = await VideoThumbnail.thumbnailData(
+    return VideoThumbnail.thumbnailData(
       video: _videoPath!,
       imageFormat: ImageFormat.JPEG,
       timeMs: ms,
@@ -197,24 +201,91 @@ class _HomePageState extends State<HomePage> {
       maxHeight: 0,
       quality: 95,
     );
+  }
 
-    if (mounted) {
+  // Navigate to [index]: instant if cached, spinner + fetch otherwise.
+  void _navigateTo(int index) {
+    if (index < 0 || index >= _totalFrames) return;
+    final gen = ++_generation;
+    _cache.removeWhere((k, _) => (k - index).abs() > _kCacheRadius);
+
+    if (_cache.containsKey(index)) {
       setState(() {
-        _frameData = data;
         _frameIndex = index;
+        _frameData = _cache[index];
         _loadingFrame = false;
       });
-      final pending = _pendingFrameIndex;
-      if (pending != null && pending != index) _loadFrame(pending);
+      unawaited(_doFillCache(index, gen, _videoPath!));
+      return;
+    }
+
+    setState(() {
+      _frameIndex = index;
+      _loadingFrame = true;
+    });
+
+    if (_fetchingCurrent) {
+      _pendingNavigate = index;
+      return;
+    }
+    _pendingNavigate = null;
+    unawaited(_fetchCurrent(index, gen, _videoPath!));
+  }
+
+  // Fetch the current frame with spinner, respecting coalesced navigation.
+  Future<void> _fetchCurrent(int index, int gen, String videoPath) async {
+    _fetchingCurrent = true;
+    final data = await _doFetch(index);
+    _fetchingCurrent = false;
+    if (!mounted) return;
+
+    if (data != null && _videoPath == videoPath) _cache[index] = data;
+
+    // If superseded by a newer navigation, serve the pending frame instead.
+    if (_generation != gen) {
+      final pending = _pendingNavigate;
+      _pendingNavigate = null;
+      if (pending != null) _navigateTo(pending);
+      return;
+    }
+
+    final pending = _pendingNavigate;
+    _pendingNavigate = null;
+    if (pending != null) {
+      _navigateTo(pending);
+      return;
+    }
+
+    if (_frameIndex == index) {
+      setState(() {
+        _frameData = data;
+        _loadingFrame = false;
+      });
+    }
+    unawaited(_doFillCache(index, gen, videoPath));
+  }
+
+  // Background fill: loads up to 40 frames on each side of [center].
+  Future<void> _doFillCache(int center, int gen, String videoPath) async {
+    for (var delta = 1; delta <= _kCacheRadius; delta++) {
+      for (final dir in [-1, 1]) {
+        final index = center + dir * delta;
+        if (index < 0 || index >= _totalFrames) continue;
+        if (_generation != gen || _videoPath != videoPath) return;
+        if (_cache.containsKey(index)) continue;
+        final data = await _doFetch(index);
+        if (_generation != gen || _videoPath != videoPath) return;
+        if (data != null) _cache[index] = data;
+      }
     }
   }
 
   void _prevFrame() {
-    if (_frameIndex > 0) _loadFrame(_frameIndex - 1);
+    if (_frameIndex > 0) _navigateTo(_frameIndex - 1);
   }
 
   void _nextFrame() {
-    if (_frameIndex < _totalFrames - 1) _loadFrame(_frameIndex + 1);
+    if (_frameIndex < _totalFrames - 1) _navigateTo(_frameIndex + 1);
   }
 
   // ── Touch / drag / zoom handling ────────────────────────────────────────────
