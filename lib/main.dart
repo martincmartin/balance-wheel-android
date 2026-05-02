@@ -247,12 +247,7 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       body: SafeArea(
-        child: Row(
-          children: [
-            Expanded(child: _buildViewer()),
-            _buildSidebar(),
-          ],
-        ),
+        child: _buildViewer(),
       ),
     );
   }
@@ -262,7 +257,23 @@ class _HomePageState extends State<HomePage> {
       children: [
         Expanded(child: _buildCanvas()),
         _buildNavBar(),
+        _buildLabels(),
       ],
+    );
+  }
+
+  Widget _buildLabels() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('Frame: $_frameIndex', style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 24),
+          Text('Angle: ${_line?.angleDeg ?? 0}°',
+              style: const TextStyle(fontSize: 16)),
+        ],
+      ),
     );
   }
 
@@ -330,19 +341,4 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildSidebar() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          Text('Frame: $_frameIndex', style: const TextStyle(fontSize: 16)),
-          const SizedBox(height: 8),
-          Text('Angle: ${_line?.angleDeg ?? 0}°',
-              style: const TextStyle(fontSize: 16)),
-        ],
-      ),
-    );
-  }
 }
