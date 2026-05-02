@@ -137,6 +137,14 @@ class _HomePageState extends State<HomePage> {
   bool _loadingFrame = false;
   int? _pendingFrameIndex;
   LineState? _line;
+
+  // Zoom / pan transform: screen = content * _scale + _offset
+  double _scale = 1.0;
+  Offset _offset = Offset.zero;
+  double _startScale = 1.0;
+  Offset _startOffset = Offset.zero;
+  Offset _startFocalPoint = Offset.zero;
+  bool _isHandleDrag = false;
   int? _draggingHandle;
 
   // ── Video loading ───────────────────────────────────────────────────────────
@@ -163,6 +171,8 @@ class _HomePageState extends State<HomePage> {
       _frameIndex = 0;
       _line = null;
       _frameData = null;
+      _scale = 1.0;
+      _offset = Offset.zero;
     });
     await _loadFrame(0);
   }
@@ -207,40 +217,62 @@ class _HomePageState extends State<HomePage> {
     if (_frameIndex < _totalFrames - 1) _loadFrame(_frameIndex + 1);
   }
 
-  // ── Touch / drag handling ───────────────────────────────────────────────────
+  // ── Touch / drag / zoom handling ────────────────────────────────────────────
 
-  void _onPanStart(DragStartDetails d) {
+  // Convert screen (widget) coordinates to content (pre-transform) coordinates.
+  Offset _toContent(Offset screen) => (screen - _offset) / _scale;
+
+  void _onScaleStart(ScaleStartDetails d) {
     if (_line == null) return;
-    final pos = d.localPosition;
-    final handles = [_line!.p1, _line!.p2, _line!.p3];
-    double minDist = double.infinity;
-    int? nearest;
-    for (var i = 0; i < handles.length; i++) {
-      final dist = (handles[i] - pos).distance;
-      if (dist < minDist) {
-        minDist = dist;
-        nearest = i;
+    if (d.pointerCount == 1) {
+      final pos = _toContent(d.localFocalPoint);
+      final handles = [_line!.p1, _line!.p2, _line!.p3];
+      double minDist = double.infinity;
+      int? nearest;
+      for (var i = 0; i < handles.length; i++) {
+        final dist = (handles[i] - pos).distance;
+        if (dist < minDist) {
+          minDist = dist;
+          nearest = i;
+        }
+      }
+      if (minDist < 27) {
+        _isHandleDrag = true;
+        _draggingHandle = nearest;
+        return;
       }
     }
-    if (minDist < 27) _draggingHandle = nearest;
+    _isHandleDrag = false;
+    _draggingHandle = null;
+    _startScale = _scale;
+    _startOffset = _offset;
+    _startFocalPoint = d.localFocalPoint;
   }
 
-  void _onPanUpdate(DragUpdateDetails d) {
-    if (_line == null || _draggingHandle == null) return;
-    final pos = d.localPosition;
+  void _onScaleUpdate(ScaleUpdateDetails d) {
+    if (_line == null) return;
+    if (_isHandleDrag && _draggingHandle != null) {
+      final pos = _toContent(d.localFocalPoint);
+      setState(() {
+        switch (_draggingHandle!) {
+          case 0: _line!.moveP1(pos);
+          case 1: _line!.moveP2(pos);
+          case 2: _line!.moveP3(pos);
+        }
+      });
+      return;
+    }
     setState(() {
-      switch (_draggingHandle!) {
-        case 0:
-          _line!.moveP1(pos);
-        case 1:
-          _line!.moveP2(pos);
-        case 2:
-          _line!.moveP3(pos);
-      }
+      _scale = (_startScale * d.scale).clamp(0.1, 50.0);
+      // Keep the focal point fixed in content space while scaling and panning.
+      _offset = d.localFocalPoint - (_startFocalPoint - _startOffset) * d.scale;
     });
   }
 
-  void _onPanEnd(DragEndDetails _) => _draggingHandle = null;
+  void _onScaleEnd(ScaleEndDetails _) {
+    _isHandleDrag = false;
+    _draggingHandle = null;
+  }
 
   // ── Build ───────────────────────────────────────────────────────────────────
 
@@ -310,17 +342,24 @@ class _HomePageState extends State<HomePage> {
       }
 
       return GestureDetector(
-        onPanStart: _onPanStart,
-        onPanUpdate: _onPanUpdate,
-        onPanEnd: _onPanEnd,
-        child: Stack(fit: StackFit.expand, children: [
-          if (_frameData != null)
-            Image.memory(_frameData!, fit: BoxFit.contain, gaplessPlayback: true)
-          else
-            const Center(child: CircularProgressIndicator()),
-          if (_line != null)
-            CustomPaint(painter: OverlayPainter(_line!)),
-        ]),
+        onScaleStart: _onScaleStart,
+        onScaleUpdate: _onScaleUpdate,
+        onScaleEnd: _onScaleEnd,
+        child: ClipRect(
+          child: Transform(
+            transform: Matrix4.identity()
+              ..translate(_offset.dx, _offset.dy)
+              ..scale(_scale),
+            child: Stack(fit: StackFit.expand, children: [
+              if (_frameData != null)
+                Image.memory(_frameData!, fit: BoxFit.contain, gaplessPlayback: true)
+              else
+                const Center(child: CircularProgressIndicator()),
+              if (_line != null)
+                CustomPaint(painter: OverlayPainter(_line!)),
+            ]),
+          ),
+        ),
       );
     });
   }
