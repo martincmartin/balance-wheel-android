@@ -135,6 +135,7 @@ class _HomePageState extends State<HomePage> {
   int _frameIndex = 0;
   Uint8List? _frameData;
   bool _loadingFrame = false;
+  int? _pendingFrameIndex;
   LineState? _line;
   int? _draggingHandle;
 
@@ -167,8 +168,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadFrame(int index) async {
-    if (_videoPath == null || _loadingFrame) return;
-    setState(() => _loadingFrame = true);
+    if (_videoPath == null) return;
+    if (_loadingFrame) {
+      setState(() => _pendingFrameIndex = index);
+      return;
+    }
+    setState(() {
+      _loadingFrame = true;
+      _pendingFrameIndex = null;
+    });
 
     final ms = (index * 1000.0 / _fps).round();
     final data = await VideoThumbnail.thumbnailData(
@@ -186,17 +194,17 @@ class _HomePageState extends State<HomePage> {
         _frameIndex = index;
         _loadingFrame = false;
       });
+      final pending = _pendingFrameIndex;
+      if (pending != null && pending != index) _loadFrame(pending);
     }
   }
 
   void _prevFrame() {
-    if (_frameIndex > 0 && !_loadingFrame) _loadFrame(_frameIndex - 1);
+    if (_frameIndex > 0) _loadFrame(_frameIndex - 1);
   }
 
   void _nextFrame() {
-    if (_frameIndex < _totalFrames - 1 && !_loadingFrame) {
-      _loadFrame(_frameIndex + 1);
-    }
+    if (_frameIndex < _totalFrames - 1) _loadFrame(_frameIndex + 1);
   }
 
   // ── Touch / drag handling ───────────────────────────────────────────────────
@@ -307,7 +315,7 @@ class _HomePageState extends State<HomePage> {
         onPanEnd: _onPanEnd,
         child: Stack(fit: StackFit.expand, children: [
           if (_frameData != null)
-            Image.memory(_frameData!, fit: BoxFit.contain)
+            Image.memory(_frameData!, fit: BoxFit.contain, gaplessPlayback: true)
           else
             const Center(child: CircularProgressIndicator()),
           if (_line != null)
@@ -326,7 +334,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             iconSize: 36,
             icon: const Icon(Icons.chevron_left),
-            onPressed: (!_loadingFrame && _frameIndex > 0) ? _prevFrame : null,
+            onPressed: _frameIndex > 0 ? _prevFrame : null,
           ),
           if (_loadingFrame)
             const SizedBox(
@@ -337,9 +345,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             iconSize: 36,
             icon: const Icon(Icons.chevron_right),
-            onPressed: (!_loadingFrame && _frameIndex < _totalFrames - 1)
-                ? _nextFrame
-                : null,
+            onPressed: _frameIndex < _totalFrames - 1 ? _nextFrame : null,
           ),
         ],
       ),
